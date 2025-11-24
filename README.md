@@ -37,6 +37,3 @@ Type your message and press **Enter** to broadcast to the public channel. Press 
 ## Note
 
 This is a reference/testing client with limited capabilities (public chat only). **Do not use for highly sensitive communications.**
-
-```
-```
