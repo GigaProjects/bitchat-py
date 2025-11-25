@@ -2,7 +2,7 @@
 
 A minimal, single-file Python 3 client for the **Bitchat** decentralized BLE mesh protocol.
 
-Designed to be lightweight and "hackable," this script is ideal for testing, and automation. It allows you to broadcast and receive public messages without a heavy UI or complex installation.
+Designed to be lightweight and "hackable," this script is ideal for testing and automation. It allows you to broadcast and receive public messages without a heavy UI or complex installation.
 
 ## Quick Start
 
@@ -18,14 +18,16 @@ source venv/bin/activate
 
 # Install dependencies
 pip install bleak pynacl lz4
+```
 
 ### 2. Run the Client
 
 You can run the client directly using the venv python executable, or after activating the environment.
-Bash
 
-# Syntax: ./venv/bin/python3 bitchat-client.py <Nickname>
-./venv/bin/python3 bitchat-client.py GigaChad
+```bash
+# Syntax: ./venv/bin/python3 bitchat-client.py <YourNickname>
+./venv/bin/python3 bitchat-client.py Alice
+```
 
 ## Troubleshooting
 
@@ -33,21 +35,21 @@ Since this script interacts directly with low-level Bluetooth adapters, the hard
 
 If you see connection errors or scanning hangs:
 
-    Kill "zombie" processes: If the script didn't exit cleanly, background processes might be holding the adapter.
-    Bash
+**Kill "zombie" processes:** If the script didn't exit cleanly, background processes might be holding the adapter.
 
+```bash
 pkill -f "python.*bitchat-client"
+```
 
-Hard Reset Bluetooth: If the adapter is completely unresponsive, restart the system service (requires sudo).
-Bash
-
-    sudo systemctl restart bluetooth
+**Hard Reset Bluetooth:** If the adapter is completely unresponsive, restart the system service (requires sudo).
+```bash
+sudo systemctl restart bluetooth
+```
 
 ## Alternatives
 
-    This Project (bitchat-py): Best for scripting, minimal resources, and creating bots/relays.
-
-    [bitchat-python](https://github.com/kaganisildak/bitchat-python): A fully-featured terminal application with a rich UI and more complex architecture.
+*   **This Project (bitchat-py):** Best for scripting, minimal resources, and creating bots/relays.
+*   **[bitchat-python](https://github.com/kaganisildak/bitchat-python):** A fully-featured terminal application with a rich UI and more complex architecture.
 
 ## Note
 
