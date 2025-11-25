@@ -1,39 +1,54 @@
-# bitchat-py (Python 3 Client)
+# bitchat-py (Lightweight Bitchat Client)
 
-A cross-platform, command-line implementation of the **Bitchat decentralized, peer-to-peer (P2P) mesh chat protocol** over Bluetooth Low Energy (BLE).
+A minimal, single-file Python 3 client for the **Bitchat** decentralized BLE mesh protocol.
 
-This client has limited capabilities (public chat only) but is **protocol-compatible** with the official Bitchat mobile apps. It is ideal for scripting, testing, and running as a dedicated relay node.
+Designed to be lightweight and "hackable," this script is ideal for testing, and automation. It allows you to broadcast and receive public messages without a heavy UI or complex installation.
 
-## Features
+## Quick Start
 
-* **Language:** Pure Python 3 for scripting and easy extension.
-* **Interface:** Simple, asynchronous command-line interface (CLI).
-* **Use Case:** Ideal for **headless relay nodes** on Single Board Computers (SBCs) like Raspberry Pi.
-
-## Installation
-
-### Prerequisites
-
-You need **Python 3.8+** and a system with native Bluetooth Low Energy support enabled.
-
-### Dependencies
-
-Install the required Python libraries using `pip`:
+### 1. Setup Virtual Environment
+It is recommended to run this in a dedicated virtual environment to keep dependencies clean.
 
 ```bash
+# Create the virtual environment
+python3 -m venv venv
+
+# Activate it
+source venv/bin/activate
+
+# Install dependencies
 pip install bleak pynacl lz4
-````
 
-## Usage
+### 2. Run the Client
 
-Run the client with a nickname:
+You can run the client directly using the venv python executable, or after activating the environment.
+Bash
 
-```bash
-python bitchat_client.py "YourNickname"
-```
+# Syntax: ./venv/bin/python3 bitchat-client.py <Nickname>
+./venv/bin/python3 bitchat-client.py GigaChad
 
-Type your message and press **Enter** to broadcast to the public channel. Press **Ctrl+C** to quit.
+## Troubleshooting
+
+Since this script interacts directly with low-level Bluetooth adapters, the hardware can sometimes get stuck. Use these commands to reset the state.
+
+If you see connection errors or scanning hangs:
+
+    Kill "zombie" processes: If the script didn't exit cleanly, background processes might be holding the adapter.
+    Bash
+
+pkill -f "python.*bitchat-client"
+
+Hard Reset Bluetooth: If the adapter is completely unresponsive, restart the system service (requires sudo).
+Bash
+
+    sudo systemctl restart bluetooth
+
+## Alternatives
+
+    This Project (bitchat-py): Best for scripting, minimal resources, and creating bots/relays.
+
+    [bitchat-python](https://github.com/kaganisildak/bitchat-python): A fully-featured terminal application with a rich UI and more complex architecture.
 
 ## Note
 
-This is a reference/testing client with limited capabilities (public chat only). **Do not use for highly sensitive communications.**
+This is a reference implementation. Capabilities are limited to public chat.
