@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Bitchat Terminal Chat Client
-Based strictly on mesh-bit2.py logic for compatibility.
+Polling Scanner + Correct Protocol Logic
 """
 
 import asyncio
@@ -45,7 +45,7 @@ FLAG_IS_COMPRESSED = 0x04
 CANONICAL_TTL_FOR_SIGNING = 0x00
 HEADER_SIZE = 14
 
-# Logging setup - minimal for chat
+# Logging setup
 logging.basicConfig(level=logging.ERROR, format="%(message)s")
 logger = logging.getLogger("BitchatChat")
 
@@ -58,9 +58,9 @@ class BitchatBLEHandler:
         self.loop = loop
         self._stopping = False
         self.nickname = nickname
-        self.scanner_task = None  # Track scanner task for cleanup
+        self.scanner_task = None
         
-        # --- IDENTITY SETUP (Exact match to mesh-bit2.py) ---
+        # --- IDENTITY SETUP ---
         self.signing_key = nacl.signing.SigningKey.generate() 
         self.verify_key = self.signing_key.verify_key
         self.public_key_bytes = self.verify_key.encode(encoder=nacl.encoding.RawEncoder)
@@ -77,7 +77,7 @@ class BitchatBLEHandler:
         print("Scanning for peers...")
 
     def _pad_data(self, data: bytearray) -> bytearray:
-        """PKCS7-style padding to optimal block size (matches MessagePadding.kt)"""
+        """PKCS7-style padding"""
         block_sizes = [256, 512, 1024, 2048]
         target_size = len(data)
         for size in block_sizes:
@@ -85,20 +85,16 @@ class BitchatBLEHandler:
                 target_size = size
                 break
         
-        if len(data) >= target_size:
-            return data
-            
+        if len(data) >= target_size: return data
         padding_needed = target_size - len(data)
-        if padding_needed > 255:
-            return data
-            
+        if padding_needed > 255: return data
         padding = bytes([padding_needed] * padding_needed)
         padded = bytearray(data)
         padded.extend(padding)
         return padded
 
     def _build_packet(self, type_byte, payload, recipient_id=None):
-        """Builds a signed packet compliant with BinaryProtocol.kt"""
+        """Builds a signed packet"""
         header = bytearray()
         header.append(PACKET_VERSION)
         header.append(type_byte)
@@ -114,7 +110,7 @@ class BitchatBLEHandler:
         
         header.extend(struct.pack('>H', len(payload)))
         
-        # Build UNSIGNED packet (for signing)
+        # Build UNSIGNED packet
         signing_header = bytearray(header)
         signing_header[2] = CANONICAL_TTL_FOR_SIGNING
         signing_flags = flags & ~FLAG_HAS_SIGNATURE
@@ -127,10 +123,8 @@ class BitchatBLEHandler:
             unsigned_packet.extend(recipient_id[:8])
         unsigned_packet.extend(payload)
         
-        # CRITICAL: Pad the unsigned packet BEFORE signing
+        # Pad and sign
         unsigned_packet_padded = self._pad_data(unsigned_packet)
-        
-        # Sign the PADDED unsigned packet
         signature = self.signing_key.sign(bytes(unsigned_packet_padded)).signature
         
         # Assemble Final Packet
@@ -142,13 +136,11 @@ class BitchatBLEHandler:
         final.extend(payload)
         final.extend(signature)
         
-        # Apply Padding to final packet
         final_padded = self._pad_data(final)
-        
         return bytes(final_padded)
 
     async def connect_client(self, device: BLEDevice):
-        """Connect to a BLE device with retry logic"""
+        """Connect to a BLE device"""
         MAX_RETRIES = 3
         RETRY_DELAY = 2.0
         
@@ -160,19 +152,16 @@ class BitchatBLEHandler:
                     self.connected_clients[device.address] = client
                     print(f"[SYSTEM] Connected to peer at {device.address}")
                     
-                    # Send Handshake (ANNOUNCE)
+                    # Send Handshake
                     handshake_payload = bytearray()
-                    # Tag 1: Name (Nickname)
                     handshake_payload.extend(b'\x01')
                     handshake_payload.append(len(self.nickname))
                     handshake_payload.extend(self.nickname.encode('utf-8'))
                     
-                    # Tag 2: Noise Public Key
                     handshake_payload.extend(b'\x02')
                     handshake_payload.append(len(self.x25519_public))
                     handshake_payload.extend(self.x25519_public)
                     
-                    # Tag 3: Signing Public Key
                     handshake_payload.extend(b'\x03')
                     handshake_payload.append(len(self.public_key_bytes))
                     handshake_payload.extend(self.public_key_bytes)
@@ -180,21 +169,16 @@ class BitchatBLEHandler:
                     packet = self._build_packet(PACKET_TYPE_ANNOUNCE, handshake_payload, recipient_id=b'\xff'*8)
                     await client.write_gatt_char(BITCHAT_RX_CHAR_UUID, packet, response=True)
                     
-                    # Setup notification handler
                     await client.start_notify(BITCHAT_TX_CHAR_UUID, self._create_notification_handler(device.address))
-                    
                     return
                     
-            except Exception as e:
+            except Exception:
                 try:
-                    if client.is_connected:
-                        await client.disconnect()
-                except:
-                    pass
+                    if client.is_connected: await client.disconnect()
+                except: pass
                 
                 if attempt < MAX_RETRIES - 1:
-                    delay = RETRY_DELAY * (2 ** attempt)
-                    await asyncio.sleep(delay)
+                    await asyncio.sleep(RETRY_DELAY * (2 ** attempt))
                     continue
                 else:
                     break
@@ -214,8 +198,6 @@ class BitchatBLEHandler:
                 is_compressed = (flags & FLAG_IS_COMPRESSED) != 0
                 
                 offset = HEADER_SIZE
-                
-                # Sender ID
                 sender_id = data[offset : offset+8]
                 offset += 8
                 short_id = sender_id.hex()[-8:]
@@ -223,21 +205,17 @@ class BitchatBLEHandler:
                 
                 sender_nick = self.peer_nicknames.get(sender_hex, short_id)
 
-                if has_recipient:
-                    offset += 8 # Skip recipient ID
+                if has_recipient: offset += 8
                     
-                # Extract Payload
                 raw_payload = data[offset : offset + payload_len]
                 
-                # Decompression
                 final_text = ""
                 if is_compressed and lz4:
                     try:
                         compressed_data = bytes(raw_payload[2:]) 
                         uncompressed_data = lz4.block.decompress(compressed_data, uncompressed_size=65536)
                         final_text = uncompressed_data.decode('utf-8', errors='ignore')
-                    except Exception:
-                        return 
+                    except Exception: return 
                 else:
                     final_text = raw_payload.decode('utf-8', errors='ignore')
 
@@ -247,7 +225,6 @@ class BitchatBLEHandler:
                         sys.stdout.flush()
                 
                 elif packet_type == PACKET_TYPE_ANNOUNCE:
-                    # Parse TLV to extract nickname
                     try:
                         tlv_offset = 0
                         while tlv_offset < len(raw_payload):
@@ -261,26 +238,18 @@ class BitchatBLEHandler:
                             
                             if tag == 0x01: # Nickname
                                 nickname = value.decode('utf-8', errors='ignore')
-                                # Only announce if it's a new nickname for this peer
                                 if self.peer_nicknames.get(sender_hex) != nickname:
                                     self.peer_nicknames[sender_hex] = nickname
                                     print(f"[SYSTEM] {nickname} ({short_id}) joined")
                                 break
-                    except:
-                        pass
-
-            except Exception as e:
-                pass
+                    except: pass
+            except Exception: pass
         return handler
 
     async def send_message(self, message: str):
-        """Send a message to all connected peers"""
-        if not self.connected_clients:
-            return
-        
+        if not self.connected_clients: return
         try:
             packet = self._build_packet(PACKET_TYPE_MESSAGE, message.encode('utf-8'), b'\xff' * 8)
-            
             disconnected_addrs = []
             sent_count = 0
             for addr, client in list(self.connected_clients.items()):
@@ -288,122 +257,101 @@ class BitchatBLEHandler:
                     if not client.is_connected:
                         disconnected_addrs.append(addr)
                         continue
-                    
                     await client.write_gatt_char(BITCHAT_RX_CHAR_UUID, packet, response=True)
                     sent_count += 1
                 except Exception:
                     disconnected_addrs.append(addr)
             
             for addr in disconnected_addrs:
-                if addr in self.connected_clients:
-                    del self.connected_clients[addr]
+                if addr in self.connected_clients: del self.connected_clients[addr]
             
             if sent_count > 0:
                 print(f"{self.nickname} (you): {message}")
-            
-        except Exception:
-            pass
+        except Exception: pass
 
     async def run_scanner(self):
-        """Continuously scan for Bitchat devices using callback (Exact match to mesh-bit2.py)"""
+        """Continuously scan for Bitchat devices (Polling Mode)"""
         print("[SYSTEM] Scanning for Bitchat devices...")
+        first_scan = True
         
-        def detection_callback(device: BLEDevice, advertisement_data: AdvertisementData):
-            if self._stopping: return
+        while not self._stopping:
+            try:
+                # Scan for 3 seconds
+                devices = await BleakScanner.discover(timeout=3.0, return_adv=True)
+                
+                if first_scan:
+                    print(f"[DEBUG] Scan found {len(devices)} total devices")
+                    first_scan = False
+
+                for device, adv in devices.values():
+                    if device.address in self.connected_clients or device.address in self.connecting_devices:
+                        continue
+                    
+                    # Check UUID
+                    if BITCHAT_SERVICE_UUID.lower() in adv.service_uuids:
+                        if device.address not in self.seen_devices:
+                            self.seen_devices.add(device.address)
+                            print(f"[SYSTEM] Found peer: {device.address}")
+                        
+                        self.connecting_devices.add(device.address)
+                        asyncio.create_task(self.connect_client(device))
+            except Exception as e:
+                # print(f"[DEBUG] Scan error: {e}")
+                pass
             
-            # Filter by Service UUID exactly like mesh-bit2.py
-            if BITCHAT_SERVICE_UUID.lower() in advertisement_data.service_uuids:
-                if (device.address not in self.connected_clients and 
-                    device.address not in self.connecting_devices):
-                    
-                    if device.address not in self.seen_devices:
-                        self.seen_devices.add(device.address)
-                        # print(f"[SYSTEM] Found peer: {device.address}")
-                    
-                    self.connecting_devices.add(device.address)
-                    asyncio.create_task(self.connect_client(device))
-        
-        scanner = BleakScanner(detection_callback)
-        await scanner.start()
-        try:
-            while not self._stopping:
-                await asyncio.sleep(1)
-        finally:
-            await scanner.stop()
+            await asyncio.sleep(1)
 
     async def monitor_connections(self):
-        """Periodically check connection status to handle disconnects"""
         while not self._stopping:
             await asyncio.sleep(5)
             disconnected_addrs = []
             for addr, client in list(self.connected_clients.items()):
                 if not client.is_connected:
                     disconnected_addrs.append(addr)
-            
             for addr in disconnected_addrs:
                 if addr in self.connected_clients:
                     del self.connected_clients[addr]
                     self.connecting_devices.discard(addr)
-                    # print(f"[SYSTEM] Peer {addr} disconnected (detected by monitor)")
 
     async def input_loop(self):
-        """Read messages from stdin"""
         print("\nType your messages and press Enter to send. Ctrl+C to exit.\n")
         while not self._stopping:
             try:
                 line = await asyncio.get_event_loop().run_in_executor(None, sys.stdin.readline)
                 line = line.strip()
-                if line:
-                    await self.send_message(line)
-            except Exception:
-                break
+                if line: await self.send_message(line)
+            except Exception: break
 
     async def stop(self):
         self._stopping = True
         print("\n[SYSTEM] Disconnecting...")
-        
-        # Cancel scanner immediately
         if self.scanner_task:
             self.scanner_task.cancel()
-            try:
-                await self.scanner_task
-            except asyncio.CancelledError:
-                pass
-        
+            try: await self.scanner_task
+            except asyncio.CancelledError: pass
+            
         tasks = []
         for client in list(self.connected_clients.values()):
-            try:
-                tasks.append(asyncio.create_task(client.disconnect()))
-            except:
-                pass
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            try: tasks.append(asyncio.create_task(client.disconnect()))
+            except: pass
+        if tasks: await asyncio.gather(*tasks, return_exceptions=True)
         self.connected_clients.clear()
 
 async def main():
     loop = asyncio.get_event_loop()
     nickname = sys.argv[1] if len(sys.argv) > 1 else "Anonymous"
-    
     chat = BitchatBLEHandler(loop, nickname=nickname)
     
     def signal_handler():
         asyncio.create_task(chat.stop())
-        # Force exit if stuck
         asyncio.get_event_loop().call_later(2, sys.exit, 0)
     
     loop.add_signal_handler(signal.SIGINT, signal_handler)
     
     try:
-        # Track the scanner task
         chat.scanner_task = asyncio.create_task(chat.run_scanner())
-        
-        await asyncio.gather(
-            chat.scanner_task,
-            chat.input_loop(),
-            chat.monitor_connections()
-        )
-    except asyncio.CancelledError:
-        pass
+        await asyncio.gather(chat.scanner_task, chat.input_loop(), chat.monitor_connections())
+    except asyncio.CancelledError: pass
     finally:
         await chat.stop()
         print("[SYSTEM] Goodbye!")
